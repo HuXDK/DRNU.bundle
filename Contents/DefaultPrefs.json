@@ -17,5 +17,12 @@
   	"type":"bool",
   	"label":"Enable beta features",
   	"default": "false"
-  }
+  },
+  {
+  	"id":"language",
+  	"type":"enum",
+  	"label":"Set language",
+  	"default":"da",
+  	"values":["da","en"]
+	}
 ]

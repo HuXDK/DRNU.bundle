@@ -22,7 +22,6 @@ jsDrRadioLive = "http://www.dr.dk/radio/channels/channels.json.drxml/"
 BUNDLE_URL = 'http://www.dr.dk/mu/Bundle'
 PROGRAMCARD_URL = 'http://www.dr.dk/mu/programcard'
 PROGRAMVIEW_URL = 'http://www.dr.dk/mu/ProgramViews/'
-SEARCH_URL = 'http://www.dr.dk/mu/Search/Bundle'
 BUNDLESWITHPUBLICASSET_URL = 'http://www.dr.dk/mu/View/bundles-with-public-asset'
 #CHANNEL = {'TVH':'DR HD','TVK':'DR K','DR1':'DR1','DR2':'DR2','TVR':'DR Ramasjang','TVU':'DR Update'}
 

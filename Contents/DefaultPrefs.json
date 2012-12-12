@@ -4,6 +4,13 @@
     "type":"enum",
     "label":"Sort programs by",
     "default": "First Letter",
-    "values": ["First Letter", "Letter Groups", "Name" ]
+    "values": ["First Letter", "Letter Groups", "Name"]
+  },
+  {
+    "id":"PO_LANG",
+    "label":"PO_LANG_LBL",
+    "type":"enum",
+    "default": "PO_LANG_DK",
+    "values": ["PO_LANG_DK", "PO_LANG_EN"]
   }
 ]

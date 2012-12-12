@@ -1,4 +1,7 @@
 {
+	"PO_LANG_LBL"       : "Sprog",
+  "PO_LANG_EN"        : "Engelsk",
+  "PO_LANG_DK"        : "Dansk",
 	"name"							:	"DR NU",
 	"jsonConnectionErrorTitle"		:	"Forbindelsesproblemer",
 	"jsonConnectionErrorMessage"	:	"Ingen forbindelse til Danmarks Radio",
@@ -16,8 +19,8 @@
 	"liveRadioSummary"				:	"Lyt til Live Radio",
 	"tvFromRadioTitle"				:	"Se TV",
 	"tvFromRadioSummary"			:	"Se TV",
-	"P4Title"						:	"P4",
-	"P4Summary"						:	"Se alle regionale P4 kanaler.",
+	"P4Title" :	"P4",
+	"P4Summary" :	"Se alle regionale P4 kanaler.",
 	"programsByFirstCharTitle"		:	"Programmer efter forbogstav",
 	"programsByFirstCharSummary"	:	"Se liste over programmer sorteret efter forbogstav.",
 	"mostWatchedProgramsTitle"		:	"Mest sete programmer",

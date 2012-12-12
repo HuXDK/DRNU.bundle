@@ -1,7 +1,5 @@
 import urllib
 import re
-import copy
-from pprint import pprint
 
 #Ex.MediaNotAvailable
 #Ex.MediaNotAuthorized

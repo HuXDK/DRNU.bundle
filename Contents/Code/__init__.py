@@ -1,4 +1,3 @@
-import urllib
 import re
 
 #Ex.MediaNotAvailable
@@ -14,13 +13,14 @@ BETA_EXCLUDE = ['']
 RADIO_NOWNEXT_URL = "http://www.dr.dk/tjenester/LiveNetRadio/datafeed/programInfo.drxml?channelId=%s"
 RADIO_TRACKS_URL = "http://www.dr.dk/tjenester/LiveNetRadio/datafeed/trackInfo.drxml?channelId=%s"
 NAME = unicode(L('name'))
-ART = 'art-default.png'
+ART = 'art-default.jpg'
 ICON = 'icon-default.png'
 jsDrRadioLive = "http://www.dr.dk/radio/channels/channels.json.drxml/"
 BUNDLE_URL = 'http://www.dr.dk/mu/Bundle'
 PROGRAMCARD_URL = 'http://www.dr.dk/mu/programcard'
 PROGRAMVIEW_URL = 'http://www.dr.dk/mu/ProgramViews/'
 BUNDLESWITHPUBLICASSET_URL = 'http://www.dr.dk/mu/View/bundles-with-public-asset'
+CHANNEL_OMMIT = ['dr-web-1']
 #CHANNEL = {'TVH':'DR HD','TVK':'DR K','DR1':'DR1','DR2':'DR2','TVR':'DR Ramasjang','TVU':'DR Update'}
 
 
@@ -40,7 +40,7 @@ def Start():
 	Plugin.AddViewGroup("InfoList", viewMode="InfoList", mediaType="items")
 	Plugin.AddViewGroup("List", viewMode="List", mediaType="items")
 	ObjectContainer.art = R(ART)
-	ObjectContainer.thumb = R(ICON)
+#	ObjectContainer.thumb = R(ICON)
 	DirectoryObject.art = R(ART)
 	DirectoryObject.thumb = R(ICON)
 	VideoClipObject.art = R(ART)
@@ -230,17 +230,18 @@ def ProgramMenu():
 	# add search options
 	
 	#dir.add(SearchDirectoryObject(identifier='com.plexapp.plugins.drnu', name='DR NU Search Service', title=unicode('searchTitle')))
-	dir.add(InputDirectoryObject(
-						title 		= unicode(L('searchTitle')), 
-						summary 	= unicode(L('searchSummary')),
-						prompt		= unicode(L('searchPrompt')),
-						key 		= Callback(bundles_with_public_asset, 
-											title 		= unicode(L('programsTitle')),
-											groupby 	= 'name', 
-											DrChannel	= "true", 
-											ChannelType = "'TV'", 
-											limit		="$eq(0)", 
-											Title 		= "$orderby('asc')")))
+#	dir.add(InputDirectoryObject(
+#						title 		= unicode(L('searchTitle')), 
+#						summary 	= unicode(L('searchSummary')),
+#						prompt		= unicode(L('searchPrompt')),
+#						key 		= Callback(bundles_with_public_asset, 
+#											title 		= unicode(L('programsTitle')),
+#											groupby 	= 'name', 
+#											DrChannel	= "true", 
+#											ChannelType = "'TV'", 
+#											limit		="$eq(0)", 
+#											Title 		= "$orderby('asc')")))
+	dir.add(SearchDirectoryObject(identifier='com.plexapp.plugins.drnu', name='DRNU', title=unicode(L('searchTitle')), prompt = 'Search on dr.dk'))
 	
 	return dir
 
@@ -328,7 +329,6 @@ def Bar(**kwargs):
 def Bundle(title1 = NAME, title2 = NAME, **kwargs):
 	
 	# set variables
-	bad_slugs = ['dr-web-1']
 	
 	#create OC
 	dir = ObjectContainer(view_group="List", title1 = title1, title2 = title2)
@@ -347,25 +347,27 @@ def Bundle(title1 = NAME, title2 = NAME, **kwargs):
 				
 		# Live
 		if 'Channel' in kwargs.get('BundleType'):
-			
-			try:
-				description = getTVLiveMetadata(program['Slug'])
-			except:
-				description = ''
-			
-			vco = VideoClipObject()
-			vco.title = program.get('Title')
-			vco.thumb = R('dr1_icon-default.png')
-			vco.summary = description 
-			vco.tagline = program.get('Subtitle')
-			vco.url = 'http://www.dr.dk/TV/live/%s' % program.get('Slug')
+			if program.get('Slug') not in CHANNEL_OMMIT:
+				try:
+					description = getTVLiveMetadata(program['Slug'])
+				except:
+					description = ''
+				
+				vco = VideoClipObject()
+				vco.title = program.get('Title')
+				vco.thumb = R('%s_icon-default.png' % program.get('Slug'))
+				vco.summary = description 
+				vco.tagline = program.get('Subtitle')
+				vco.url = 'http://www.dr.dk/TV/live/%s' % program.get('Slug')
+				dir.add(vco)
 			
 		# On-demand
 		else:
 			vco = getProgram(program) 
+			dir.add(vco)
 		
 		# add vco to directory
-		dir.add(vco)
+#		dir.add(vco)
 	
 	return dir
 
@@ -420,8 +422,8 @@ def ProgramViews(title = NAME, type = '/', **kwargs):
 
 ###################################################################################################
 
-@route('/video/drnu/bundleswithpublicasset/{title}/{groupby}/{query}{kwargs}', title = String, groupby = String, query = String)
-def bundles_with_public_asset(title = NAME, groupby = 'firstChar', query = '', **kwargs):
+@route('/video/drnu/bundleswithpublicasset/{title}/{groupby}/{kwargs}')
+def bundles_with_public_asset(title = NAME, groupby = 'firstChar',  **kwargs):
 	
 	# create OC
 	dir = ObjectContainer(view_group="List", title1 = NAME, title2 = title)
@@ -430,7 +432,7 @@ def bundles_with_public_asset(title = NAME, groupby = 'firstChar', query = '', *
 	url = argsToURLString(APIURL = BUNDLESWITHPUBLICASSET_URL, args = kwargs)
 	
 	# add search query if any
-	if query: url += "&Title=$like('" + urllib.quote_plus(query) + "')"
+#	if query: url += "&Title=$like('" + urllib.quote_plus(query) + "')"
 	
 	# set variables
 	programcards = JSON.ObjectFromURL(url)
@@ -547,13 +549,12 @@ def getProgram(program):
 
 def stripProgramCards(programcards, order=True):
 	
-	# get globals
-	global SERIERULES
+#	# get globals
+#	global SERIERULES
 	
 	# set variables
 	checkList 	= ['Title', 'Description']
 	serierules 	= JSON.ObjectFromURL('http://www.dr.dk/mu/configuration/SeriesRules')['Data'][0]['Rules']
-	bad_slugs 	= ['dr-web-1']
 		
 	try:
 		

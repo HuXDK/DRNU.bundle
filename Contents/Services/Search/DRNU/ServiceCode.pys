@@ -1,0 +1,32 @@
+#SearchDirectoryObject(identifier='com.plexapp.plugins.foo', name='My Search Service', title=L('Search'))
+ChannelNames = {"DR1":"DR1", "DR2":"DR2", "TVR":"DR Ramasjang", "TVK":"DR K","TVU":"DR Update","TVH":"DR HD"}
+def Search(query):
+	dir = ObjectContainer()
+	json = JSON.ObjectFromURL("http://www.dr.dk/mu/programcard?Title=$like('%s')" % query)
+	for program in json['Data']:
+		programSlug = program.get('Slug')
+		for relations in program.get('Relations'):
+			if relations.get('BundleType') == 'Series':
+				seriesSlug = relations.get('Slug', 'Plex')
+		for assets in program.get('Assets'):
+			if assets.get('Kind') == 'VideoResource' or assets.get('Kind') == 'AudioResource':
+				duration = assets.get('DurationInMilliseconds')
+				break
+			else:
+				duration = None
+		for assets in program.get('Assets'):
+			if assets.get('Kind') == 'Image':
+				thumb = assets.get('Uri') + '?height=512&width=512'
+				break
+			else:
+				thumb = None
+		dir.add(VideoClipObject(title = program.get('Title'),
+							url = 'http://www.dr.dk/TV/se/%s/%s' %  (seriesSlug, programSlug),
+							summary = unicode(String.StripTags(program.get('Description'))),
+							duration = duration,
+							thumb = thumb,
+							studio = 'Danmarks Radio',
+							year = program.get('ProductionYear'),
+							tags = [program.get('GenreText')],
+							source_title = ChannelNames[program.get('PrimaryChannel').rsplit('/',1)[1]])) 
+	return dir

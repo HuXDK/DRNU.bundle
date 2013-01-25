@@ -8,6 +8,25 @@
 	   <dict>
 	   </dict>
 	</dict>
+	<key>URL</key>
+	<dict>
+		<key>DRLive</key>
+		<dict>
+		<key>TestURLs</key>
+			<array>
+				<string>http://www.dr.dk/TV/live/dr1</string>
+				<string>http://www.dr.dk/radio/player/?P1D</string>
+			</array>
+			<key>URLPatterns</key>
+			<array>
+				<string>http://(.*)dr.dk/(TV|tv)/live/.+|http://(.*)dr.dk/radio/player/\?(?!id).*</string>
+			</array>
+		</dict>
+	</dict>
+  	<key>PlexFrameworkFlags</key>
+  	<array>
+    	<string>UseRealRTMP</string>
+  	</array>
 </dict>
 </plist>
 

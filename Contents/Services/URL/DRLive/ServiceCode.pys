@@ -1,0 +1,85 @@
+RADIO_NOWNEXT_URL = "http://www.dr.dk/tjenester/LiveNetRadio/datafeed/programInfo.drxml?channelId=%s"
+jsDrRadioLive = "http://www.dr.dk/radio/channels/channels.json.drxml/"
+apiBaseURL = "http://www.dr.dk/nu/api/%s"
+apiBaseRadioWebURL = 'http://www.dr.dk/tjenester/medieapi/api/%s'
+bwInt = {"high":1000, "medium":500, "low":250, "auto":20000}
+ChannelNames = {"DR1":"DR1", "DR2":"DR2", "TVR":"DR Ramasjang", "TVK":"DR K","TVU":"DR Update","TVH":"DR HD"}
+
+####################################################################################################
+def NormalizeURL(url):
+
+	return url.lower()
+
+####################################################################################################
+def MetadataObjectForURL(url):
+	vc = VideoClipObject()
+	Log.Debug(url)
+	# LIVE TV
+	if 'live' in url:
+		slug = url.rsplit('/',1)[1]
+		try:
+			drMeta = JSON.ObjectFromURL("http://www.dr.dk/mu/Bundle/?BundleType='Channel'&DrChannel=true&ChannelType='TV'&Slug='%s'" % slug)
+		except:
+			Log.Debug('Media (%s) not available' % url)
+		vc.title = drMeta['Data'][0]['Title']
+		vc.summary = drMeta['Data'][0]['Description']
+			## Live Radio
+	elif 'player' in url:
+		slug = url.rsplit('?',1)[1]
+		try:
+			drMeta = JSON.ObjectFromURL("http://www.dr.dk/mu/Bundle/?BundleType='Channel'&DrChannel=true&ChannelType='RADIO'&SourceUrl=$eq('dr.dk/mas/whatson/channel/%s')" % slug.upper())
+		except:
+			Log.Debug('Media (%s) not available' % url)
+		vc.title = drMeta['Data'][0]['Title']
+		vc.summary = drMeta['Data'][0]['Description']
+	
+	return vc
+	
+
+####################################################################################################
+@deferred
+def MediaObjectsForURL(url):
+	mol = []
+	# LIVE TV
+	if 'live' in url:
+		
+		slug = url.rsplit('/',1)[1]
+		try:
+			drMeta = JSON.ObjectFromURL("http://www.dr.dk/mu/Bundle/?BundleType='Channel'&DrChannel=true&ChannelType='TV'&Slug='%s'" % slug)
+		except:
+			Log.Debug('Media (%s) not available' % url)
+		for streamingservers in drMeta['Data'][0]['StreamingServers']:
+			if(streamingservers['LinkType'] == "Streaming"):
+				for qualities in streamingservers['Qualities']:
+					for streams in qualities['Streams']:
+						
+						mol.append(MediaObject(bitrate=qualities['Kbps'], parts=[PartObject(key=RTMPVideoURL(streamingservers['Server'], clip = streams['Stream'], width=None,height=None, live=True))]))
+						## Live Radio
+	elif 'player' in url:
+		try:
+			jsonDrLive = JSON.ObjectFromURL(jsDrRadioLive)
+		except:
+			Log.Debug('Media (%s) not available' % url)
+
+		for livestream in jsonDrLive:
+			if url.rsplit('/?', 1)[1] == String.StripDiacritics(livestream['source_url']):
+				if isinstance(livestream['mediaFile'], list):
+
+					for mediafile in livestream['mediaFile']:
+						mo = MediaObject(parts=[PartObject(key=RTMPVideoURL(mediafile.rsplit('/', 1)[0], clip=mediafile.rsplit('/', 1)[1], height=None, width=None, live=True))])
+						mol.append(mo)
+
+				elif isinstance(livestream['mediaFile'], basestring):
+					mo = MediaObject(parts=[PartObject(key=RTMPVideoURL(livestream['mediafile'].rsplit('/', 1)[0], clip=livestream['mediafile'].rsplit('/', 1)[1], height=None, width=None, live=True))])
+					mol.append(mo)
+				break	
+	return mol
+
+
+
+####################################################################################################
+def PlayMP3(url):
+
+	return Redirect(url)
+
+

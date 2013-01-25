@@ -1,5 +1,5 @@
-import re
 
+#import re
 #Ex.MediaNotAvailable
 #Ex.MediaNotAuthorized
 #Ex.MediaGeoblocked
@@ -8,20 +8,10 @@ import re
 ###################################################################################################
 VIDEO_PREFIX = "/video/drnu"
 MUSIC_PREFIX = "/music/drnu"
-BETA_EXCLUDE = ['']
-
-RADIO_NOWNEXT_URL = "http://www.dr.dk/tjenester/LiveNetRadio/datafeed/programInfo.drxml?channelId=%s"
-RADIO_TRACKS_URL = "http://www.dr.dk/tjenester/LiveNetRadio/datafeed/trackInfo.drxml?channelId=%s"
 NAME = unicode(L('name'))
 ART = 'art-default.jpg'
 ICON = 'icon-default.png'
-jsDrRadioLive = "http://www.dr.dk/radio/channels/channels.json.drxml/"
-BUNDLE_URL = 'http://www.dr.dk/mu/Bundle'
-PROGRAMCARD_URL = 'http://www.dr.dk/mu/programcard'
-PROGRAMVIEW_URL = 'http://www.dr.dk/mu/ProgramViews/'
-BUNDLESWITHPUBLICASSET_URL = 'http://www.dr.dk/mu/View/bundles-with-public-asset'
-CHANNEL_OMMIT = ['dr-web-1']
-#CHANNEL = {'TVH':'DR HD','TVK':'DR K','DR1':'DR1','DR2':'DR2','TVR':'DR Ramasjang','TVU':'DR Update'}
+CHANNEL_OMMIT = ['dr-web-1','dr3']
 
 
 ####################################################################################################
@@ -47,7 +37,7 @@ def Start():
 	VideoClipObject.thumb = R(ICON)
 	
 	HTTP.Headers['User-Agent'] = "Mozilla/5.0 (Macintosh; U; Intel Mac OS X 10.7; en-US; rv:1.9.2.13) Gecko/20101203 Firefox/3.6.13"
-	HTTP.PreCache("http://www.dr.dk/mu/View/bundles-with-public-asset?ChannelType='TV'&limit=$eq(0)&DrChannel=true&Title=$orderby('asc')")
+#	HTTP.PreCache("http://www.dr.dk/mu/View/bundles-with-public-asset?ChannelType='TV'&limit=$eq(0)&DrChannel=true&Title=$orderby('asc')")
 	
 ###################################################################################################
 
@@ -332,42 +322,55 @@ def Bundle(title1 = NAME, title2 = NAME, **kwargs):
 	
 	#create OC
 	dir = ObjectContainer(view_group="List", title1 = title1, title2 = title2)
-		
-	# try fetch url or raise exception
-	try:
-		programcards = JSON.ObjectFromURL(argsToURLString(APIURL = BUNDLE_URL, args = kwargs))
-	except:
-		pass
 	
-	# strip programcards
-	programcards = stripProgramCards(programcards, False)
-	
-	# run through all channels
-	for program in programcards:
-				
+	bundles = JSON.ObjectFromURL(argsToURLString(APIURL = 'http://www.dr.dk/mu/bundle', args = kwargs))
+	for bundle in bundles['Data']:
 		# Live
-		if 'Channel' in kwargs.get('BundleType'):
-			if program.get('Slug') not in CHANNEL_OMMIT:
-				try:
-					description = getTVLiveMetadata(program['Slug'])
-				except:
-					description = ''
-				
-				vco = VideoClipObject()
-				vco.title = program.get('Title')
-				vco.thumb = R('%s_icon-default.png' % program.get('Slug'))
-				vco.summary = description 
-				vco.tagline = program.get('Subtitle')
-				vco.url = 'http://www.dr.dk/TV/live/%s' % program.get('Slug')
-				dir.add(vco)
-			
-		# On-demand
-		else:
-			vco = getProgram(program) 
+		if 'Channel' in kwargs.get('BundleType') and bundle.get('Slug') not in CHANNEL_OMMIT:
+			vco = VideoClipObject()
+			vco.title = bundle.get('Title')
+			vco.thumb = R('%s_icon-default.png' % bundle.get('Slug'))
+			vco.url = 'http://www.dr.dk/tv/live/%s' % bundle.get('Slug')
+			# Description
+			description = ''
+			nowNext = JSON.ObjectFromURL('http://www.dr.dk/TV/API/live/info/%s/json' % bundle.get('Slug'))
+			if nowNext.get('Now') is not None:
+				description += "Nu: "
+				description += '(%s' %	Datetime.FromTimestamp(nowNext.get('Now').get('StartTimestamp')/1000).strftime('%H:%M')
+				description += ' - %s)' %	Datetime.FromTimestamp(nowNext.get('Now').get('EndTimestamp')/1000).strftime('%H:%M')
+				description += ' - ' + nowNext.get('Now').get('Title')
+				description += '\n'
+				description += String.StripTags(unicode(nowNext.get('Now').get('Description')))
+
+			if nowNext.get('Next') is not None:
+				if description != '':
+					description += '\n\n'
+				description += unicode("Næste: ")
+				description += '(%s' %	Datetime.FromTimestamp(nowNext.get('Next').get('StartTimestamp')/1000).strftime('%H:%M')
+				description += ' - %s)' %	Datetime.FromTimestamp(nowNext.get('Next').get('EndTimestamp')/1000).strftime('%H:%M')
+				description += ' - ' + nowNext.get('Next').get('Title')
+				description += '\n'
+				description += String.StripTags(unicode(nowNext.get('Next').get('Description')))
+
+			vco.summary = description
+			if Locale.Geolocation != 'DK': raise Ex.MediaGeoblocked
+			dir.add(vco)
+		# On-Demand
+		elif 'Series' in kwargs.get('BundleType'):
+			# thumb
+			vco = TVShowObject()
+			vco.genres = [bundle.get('OnlineGenreText')]
+			vco.source_title = JSON.ObjectFromURL("http://www.dr.dk/mu/bundle?SourceUrl='%s'" % bundle.get('PrimaryChannel'))[0].get('Title')
+			vco.summary = bundle.get('Description')
+			vco.thumb = R(ICON)
+			vco.rating_key = bundle.get('Slug')
+			Log.Debug('---------')
+			Log.Debug(bundle)
+			vco.key = Callback(ProgramCard, NAME, bundle.get('Title'), Relations_Slug = bundle.get('Slug')) 
+#			Log.Debug(bundle.get('Slug'))
 			dir.add(vco)
 		
-		# add vco to directory
-#		dir.add(vco)
+
 	
 	return dir
 
@@ -377,23 +380,35 @@ def Bundle(title1 = NAME, title2 = NAME, **kwargs):
 def ProgramCard(title1 = NAME, title2 = NAME, **kwargs):
 	
 	dir = ObjectContainer(view_group = "List", title1 = title1, title2 = title2)
-	
-	# try to fetch program cards or raise exception
-	try:
-		programcards = JSON.ObjectFromURL(argsToURLString(APIURL=PROGRAMCARD_URL, args=kwargs))
-	except:
-		raise Ex.MediaNotAvailable
-	
-	# strip programcards
-	programcards = stripProgramCards(programcards)
-	
-	# run through all programcards
-	for program in programcards:
-		
-		# get and add program VCO
-		dir.add(getProgram(program))
-		
+	programcards = JSON.ObjectFromURL(argsToURLString(APIURL = 'http://www.dr.dk/mu/programcard', args = kwargs))
+	Log.Debug(programcards)
+	for programcard in programcards['Data']:
+		vco = VideoClipObject()
+		vco.url = 'http://www.dr.dk/TV/se/Plex/%s' % programcard.get('Slug')
+		vco.title = programcard.get('Title')
+		dir.add(vco)
+	Log.Debug('æoasjhlszjfgnzlxkjfgzxlkfgjbzlfgb')
 	return dir
+		
+		
+	
+	#===========================================================================
+	# # try to fetch program cards or raise exception
+	# try:
+	#	programcards = JSON.ObjectFromURL(argsToURLString(APIURL=PROGRAMCARD_URL, args=kwargs))
+	# except:
+	#	raise Ex.MediaNotAvailable
+	# 
+	# # strip programcards
+	# programcards = stripProgramCards(programcards)
+	# 
+	# # run through all programcards
+	# for program in programcards:
+	#	
+	#	# get and add program VCO
+	#	dir.add(getProgram(program))
+	#===========================================================================
+		
 
 ###################################################################################################
 
@@ -427,75 +442,102 @@ def bundles_with_public_asset(title = NAME, groupby = 'firstChar',  **kwargs):
 	
 	# create OC
 	dir = ObjectContainer(view_group="List", title1 = NAME, title2 = title)
-	
+
 	#create url
-	url = argsToURLString(APIURL = BUNDLESWITHPUBLICASSET_URL, args = kwargs)
+#	url = argsToURLString(APIURL = 'http://www.dr.dk/mu/View/bundles-with-public-asset', args = kwargs)
 	
 	# add search query if any
-#	if query: url += "&Title=$like('" + urllib.quote_plus(query) + "')"
+ #	if query: url += "&Title=$like('" + urllib.quote_plus(query) + "')"
 	
 	# set variables
-	programcards = JSON.ObjectFromURL(url)
+#	programcards = JSON.ObjectFromURL(url)
 	
 	 # group by first letter
 	if groupby == 'firstChar':
+		# Content beginning with 0-9
+		dir.add(DirectoryObject(title = '0-9',
+			summary 	= unicode(L('fistCharBucketTitle')) + '0-9',
+			key 		= Callback(bundles_with_public_asset,
+								title 		= '0-9', 
+								groupby 	= 'name',
+								Title 		= "$between('0','9'),$orderby('asc')",
+								ChannelType = "'TV'", 
+								limit 		= "$eq(0)",
+								BundleType	= 'Series'))
+			)
 		
-		# set variables
-		bucket = dict()
-		letter = ''
-		
-		# run through all programs
-		for program in programcards['Data']:
+		# Content beginning with a letter
+		groupChar = unicode('abcdefghijklmnopqrstuvwxyzæøå')
+		for char in list(groupChar):
+			json = JSON.ObjectFromURL("http://www.dr.dk/mu/View/bundles-with-public-asset?BundleType='Series'&ChannelType='TV'&limit=$eq(1)&DrChannel=true&Title=$like('%s')" % char)
+			if len(json['Data'])>0:
+				dir.add(DirectoryObject(title = char.upper(),
+									summary 	= unicode(L('fistCharBucketTitle')) + char.upper(),
+									key 		= Callback(bundles_with_public_asset,
+														title 		= NAME, 
+														groupby 	= 'name',
+														Title 		= "$like('" + char +"'),$orderby('asc')",
+														ChannelType = "'TV'", 
+														limit 		= "$eq(0)",
+														BundleType	= 'Series'))
+									)
+
 			
-			if program.get('Assets'):
-				# add program to letter bucket
-				if program['Title'][0] not in bucket:
-					bucket[program['Title'][0].upper()] = list()
-				bucket[program['Title'][0].upper()].append(program)
-		
-		# add DO for each letter in bucket
-		for firstChar in sorted(bucket.iterkeys()):
-			dir.add(DirectoryObject(title = firstChar,
-								summary 	= unicode(L('fistCharBucketTitle')) + firstChar,
-								key 		= Callback(bundles_with_public_asset,
-													title 		= NAME, 
-													groupby 	= 'name',
-													Title 		= "$like('" + firstChar +"'),$orderby('asc')",
-													ChannelType = "'TV'", 
-													limit 		= "$eq(0)"))
-								)
-	 
 	 # group by name
 	else:
 		
-		# strip programcards
-		programcards = stripProgramCards(programcards)
+		bundles = JSON.ObjectFromURL(argsToURLString(APIURL = "http://www.dr.dk/mu/View/bundles-with-public-asset", args = kwargs))
+		
+		for bundle in bundles['Data']:
+			Log.Debug(bundle.get('Slug'))
+			vco = DirectoryObject()
+			Log.Debug('-----------')
+			vco.key = Callback(ProgramCard, title1 = NAME, title2 = bundle.get('Title'), Slug = "'%s'" % bundle.get('Slug'))
+#							Relations_BundleType = "'Series'")
+			Log.Debug('-----------')
+			vco.title = bundle.get('Title')
+			vco.summary = bundle.get('Description')
+			dir.add(vco)
+	return dir
+#		for bundle in programcards['Data']:
+#			Log.Debug(programcard.get('Title'))
+#			vco = DirectoryObject()
+#			vco.title = programcard.get('Title')
+#			vco.thumb = R(ICON)
+#			vco.key = Callback(ProgramCard,
+#							title1 = NAME, 
+#							title2 = programcard.get('Title'),
+#							Relations_Slug = "'%s'" % programcard.get('Slug'),
+#							Relations_BundleType = "'Series'")
+#			dir.add(vco)
 		
 		# run through all programs
-		for program in programcards:
-			
-			# get variables
-			title 		= program.get('Title')
-			punchline	= program.get('Subtitle')
-			year		= program.get('ProductionYear')
-			description = program.get('Description')
-			slug		= program.get('Slug')
-			thumb		= program.get('Thumb',R(ICON))
-			    	
-			# create DO and add to OC
-			dir.add(DirectoryObject(
-								title	= title,
-								summary = description,
-								thumb 	= thumb,
-								key 	= Callback(ProgramCard,
-												title1 		= NAME,
-												title2 		= title,
-												Relations_Slug = "'%s'" % slug,
-												Assets_Kind	="'VideoResource'",
-												Relations_BundleType="'Series'"
-												)))
-			
-	return dir
+		#=======================================================================
+		# for program in programcards:
+		#	
+		#	# get variables
+		#	title 		= program.get('Title')
+		#	punchline	= program.get('Subtitle')
+		#	year		= program.get('ProductionYear')
+		#	description = program.get('Description')
+		#	slug		= program.get('Slug')
+		#	thumb		= program.get('Thumb',R(ICON))
+		#	    	
+		#	# create DO and add to OC
+		#	dir.add(DirectoryObject(
+		#						title	= title,
+		#						summary = description,
+		#						thumb 	= thumb,
+		#						key 	= Callback(ProgramCard,
+		#										title1 		= NAME,
+		#										title2 		= title,
+		#										Relations_Slug = "'%s'" % slug,
+		#										Assets_Kind	="'VideoResource'",
+		#										Relations_BundleType="'Series'"
+		#										)))
+		#	
+		#=======================================================================
+	
 
 ###################################################################################################
 
@@ -519,276 +561,280 @@ def argsToURLString(APIURL, args):
 	return url
 
 ###################################################################################################
+#===============================================================================
+# 
+# def getProgram(program):
+#	
+#	# set variables
+#	title 		= program.get('Title')
+#	punchline	= program.get('Subtitle')
+#	year		= program.get('ProductionYear')
+#	date		= Datetime.ParseDate(program.get('FirstBroadcastStartTime'))
+#	description = program.get('Description')
+#	slug		= program.get('Slug')
+#	serie_slug	= program.get('Serie_Slug','plex')
+#	duration	= program.get('Duration')
+#	thumb		= program.get('Thumb',R(ICON))
+#	studio		= "Danmarks Radio"
+#	
+#	# return vco
+#	return VideoClipObject(
+#				title 		= title,
+#				tagline 	= punchline,
+#				summary 	= description,
+#				originally_available_at = date,
+#				duration	= duration,
+#				studio		= studio,
+#				thumb 		= thumb,
+#				url 		= "http://www.dr.dk/TV/se/%s/%s" % (serie_slug, slug))
+# 
+# ###################################################################################################
+# 
+# def stripProgramCards(programcards, order=True):
+#	
+# #	# get globals
+# #	global SERIERULES
+#	
+#	# set variables
+#	checkList 	= ['Title', 'Description']
+#	serierules 	= JSON.ObjectFromURL('http://www.dr.dk/mu/configuration/SeriesRules')['Data'][0]['Rules']
+#		
+#	try:
+#		
+#		# strip 'Data' if exists
+#		if programcards.get('Data'):
+#			programcards = programcards['Data']
+#		
+#		# run through all programcards
+#		for programcard in programcards:
+#		
+#			# set variables
+#			hasMedia = False
+#			programcard['Duration'] = 0
+#			
+#			# if programcard indside
+#			if programcard.get('ProgramCard'):
+#				
+#				# find assets
+#				if programcard.get('ProgramCard').get('Assets'):
+#					programcard['Assets'] = programcard.get('ProgramCard').get('Assets')
+#				
+#				# find broadcasts
+#				if programcard.get('ProgramCard').get('Broadcasts'):
+#					programcard['Broadcasts'] = programcard.get('ProgramCard').get('Broadcasts')
+#			
+#				# find broadcasts
+#				if programcard.get('ProgramCard').get('Relations'):
+#					programcard['Relations'] = programcard.get('ProgramCard').get('Relations')
+#			
+#			# find slug
+#			if not programcard.get('Slug') and programcard.get('ProgramCard'):
+#				if programcard.get('ProgramCard').get('Slug'):
+#					programcard['Slug'] = programcard.get('ProgramCard').get('Slug')
+#			
+#			# run through program if media available	
+#			if programcard.get('Assets'):
+#				
+#				# run through assets
+#				for asset in programcard.get('Assets', dict()):
+#	
+#					# if asset.get('Kind') == 'VideoResource' and asset.get('Uri') and asset.get('RestrictedToDenmark') is True:
+#					#	raise Ex.MediaGeoblocked
+#	
+#					# check if program has media
+#					if asset.get('Kind') == 'VideoResource' and asset.get('Uri'):
+#						hasMedia = True
+#						if asset.get('DurationInMilliseconds'):
+#							programcard['Duration'] = asset.get('DurationInMilliseconds')
+#						
+#					# check if program has image
+#					if asset.get('Kind') == 'Image' and asset.get('Uri'):
+#						programcard['Thumb'] = asset['Uri'] + '?width=512&height=512'
+#						break
+#					
+#				# set hasMedia		
+#				programcard['hasMedia'] = hasMedia
+#				
+#			# run through program if Relations available	
+#			if programcard.get('Relations'):
+#				
+#				# run through each broadcast
+#				for relation in programcard.get('Relations', dict()):
+#					if relation.get('BundleType') == 'Series':
+#						programcard['Serie_Slug'] = relation.get('Slug')
+#				
+#			# run through program if broadcasts available	
+#			if programcard.get('Broadcasts'):
+#				
+#				# run through each broadcast
+#				for broadcast in programcard.get('Broadcasts', dict()):
+#					
+#					# if broadcast['IsRerun']: del broadcast
+#					
+#					# check must have variables
+#					for checkPar in checkList:
+#						
+#						# if not found in programcard, try get it from broadcast json
+#						if programcard.get(checkPar) is None or programcard.get(checkPar) == "" :
+#							programcard[checkPar] = broadcast.get(checkPar)
+#					
+#					# find first start date in broadcast - assume its first run
+#					if 'FirstBroadcastStartTime' not in programcard:
+#					
+#						if 'AnnouncedStartTime' not in programcard:
+#							programcard['AnnouncedStartTime'] = broadcast.get('AnnouncedStartTime', '0001-01-01T00:00:00Z')
+#						else:
+#							programTime = Datetime.ParseDate(programcard['AnnouncedStartTime'])
+#							broadcastTime = Datetime.ParseDate(broadcast.get('AnnouncedStartTime', '0001-01-01T00:00:00Z'))
+#							if broadcastTime>programTime:
+#								programcard['AnnouncedStartTime'] = broadcast.get('AnnouncedStartTime', '0001-01-01T00:00:00Z')
+#						
+#						# set first broadcast start / end
+#						if programcard.get('AnnouncedStartTime'):
+#							programcard['FirstBroadcastStartTime'] = programcard.get('AnnouncedStartTime')
+#						
+#					# find first end date in broadcast - assume its first run
+#					if 'FirstBroadcastEndTime' not in programcard:
+#						
+#						if 'AnnouncedEndTime' not in programcard:
+#							programcard['AnnouncedEndTime'] = broadcast.get('AnnouncedEndTime', '0001-01-01T00:00:00Z')
+#						else:
+#							programTime = Datetime.ParseDate(programcard['AnnouncedEndTime'])
+#							broadcastTime = Datetime.ParseDate(broadcast.get('AnnouncedEndTime', '0001-01-01T00:00:00Z'))
+#							if broadcastTime>programTime:
+#								programcard['AnnouncedEndTime'] = broadcast.get('AnnouncedEndTime', '0001-01-01T00:00:00Z')
+#					
+#						
+#						# set first broadcast start / end
+#						if programcard.get('AnnouncedEndTime'):
+#							programcard['FirstBroadcastEndTime'] = programcard.get('AnnouncedEndTime')
+#					
+# #				 set title
+#				for rules in serierules:
+#					if re.search(str(rules['RegEx']), str(programcard['Title'])):
+#						if programcard.get('PrimaryChannel') in rules.get('Channels', dict()) or 'ReplaceEx' in rules:
+#							programcard['Title'] = re.sub(rules['RegEx'], rules['ReplaceEx'], programcard['Title'], 1)
+#						programcard['Title'] = programcard['Title'] + Datetime.ParseDate(programcard['AnnouncedStartTime']).strftime(' (%d-%m-%y)')
+#						break
+#					
+# #				 remove broadcasts
+#				del programcard['Broadcasts']
+#			
+#	except Ex.MediaNotAvailable:
+#		pass
+#	except Ex.MediaGeoblocked:
+#		pass
+#	
+#	# order programcards by "orderby"
+#	if order:
+#		programcards = sorted(programcards, key=lambda item: item.get('Title'))
+#	
+#	# remove bad slugs
+#		
+#	return programcards
+# 
+# ###################################################################################################
+# 
+# def stripBundle(bundle):
+#	
+#	return bundle
+# 
+# ###################################################################################################
+# 
+# def getRadioMetadata(channelId):
+#	
+#	# This is a undocumented feature that might break the plugin.
+#	JSONobj = JSON.ObjectFromURL(RADIO_NOWNEXT_URL % channelId, cacheTime = 60)
+#	title_now = ""
+#	description_now = ""
+#	start_now = ""
+#	stop_now = "" 
+#	title_next = "" 
+#	description_next = "" 
+#	start_next = ""
+#	stop_next = ""
+#	trackop = ""
+#	
+#	if JSONobj['currentProgram']:
+#		if JSONobj['currentProgram']['title']:
+#			title_now = String.StripTags(JSONobj['currentProgram']['title']).replace("'","\'")
+#		if JSONobj['currentProgram']['description']:
+#			description_now = "\n" + String.StripTags(JSONobj['currentProgram']['description']).replace("'","\'")
+#		if JSONobj['currentProgram']['start'] and JSONobj['currentProgram']['stop']:
+#			start_now = "'\n" +JSONobj['currentProgram']['start'].split('T')[1].split(':')[0]+":"+JSONobj['currentProgram']['start'].split('T')[1].split(':')[1]
+#			stop_now = "-"+JSONobj['currentProgram']['stop'].split('T')[1].split(':')[0]+":"+JSONobj['currentProgram']['stop'].split('T')[1].split(':')[1]
+# 
+#	if JSONobj['nextProgram']:
+#		if JSONobj['nextProgram']['title']:
+#			title_next = "\n\n" + String.StripTags(JSONobj['nextProgram']['title']).replace("'","\'")
+#		if JSONobj['nextProgram']['description']:
+#			description_next = "\n" + String.StripTags(JSONobj['nextProgram']['description']).replace("'","\'")
+#		if JSONobj['nextProgram']['start'] and JSONobj['nextProgram']['stop']:
+#			start_next = "\n" + JSONobj['nextProgram']['start'].split('T')[1].split(':')[0]+":"+JSONobj['nextProgram']['start'].split('T')[1].split(':')[1]
+#			stop_next = "-" + JSONobj['nextProgram']['stop'].split('T')[1].split(':')[0]+":"+JSONobj['nextProgram']['stop'].split('T')[1].split(':')[1]
+# 
+#	try:
+#		JSONobjTracks = JSON.ObjectFromURL(RADIO_TRACKS_URL % channelId, cacheTime=30)
+#		if JSONobjTracks['tracks']:
+#			pre1 = "\n\n%s: " % unicode(L('latestTitle'))
+#			for track in JSONobjTracks['tracks']:
+#				if track['displayArtist']:
+#					trackop = trackop + pre1 + track['displayArtist']
+#				if track['title']:
+#					trackop = trackop + "\n" + track['title'] + "\n\n"
+#				pre1 = "%s: " % unicode(L('previous'))
+#	except:pass			
+#					
+#	strNowNext = title_now + description_now + start_now + stop_now + title_next + description_next + start_next + stop_next + trackop
+#		
+#	return strNowNext
+# 
+# ###################################################################################################
+#===============================================================================
 
-def getProgram(program):
-	
-	# set variables
-	title 		= program.get('Title')
-	punchline	= program.get('Subtitle')
-	year		= program.get('ProductionYear')
-	date		= Datetime.ParseDate(program.get('FirstBroadcastStartTime'))
-	description = program.get('Description')
-	slug		= program.get('Slug')
-	serie_slug	= program.get('Serie_Slug','plex')
-	duration	= program.get('Duration')
-	thumb		= program.get('Thumb',R(ICON))
-	studio		= "Danmarks Radio"
-	
-	# return vco
-	return VideoClipObject(
-				title 		= title,
-				tagline 	= punchline,
-				summary 	= description,
-				originally_available_at = date,
-				duration	= duration,
-				studio		= studio,
-				thumb 		= thumb,
-				url 		= "http://www.dr.dk/TV/se/%s/%s" % (serie_slug, slug))
-
-###################################################################################################
-
-def stripProgramCards(programcards, order=True):
-	
-#	# get globals
-#	global SERIERULES
-	
-	# set variables
-	checkList 	= ['Title', 'Description']
-	serierules 	= JSON.ObjectFromURL('http://www.dr.dk/mu/configuration/SeriesRules')['Data'][0]['Rules']
-		
-	try:
-		
-		# strip 'Data' if exists
-		if programcards.get('Data'):
-			programcards = programcards['Data']
-		
-		# run through all programcards
-		for programcard in programcards:
-		
-			# set variables
-			hasMedia = False
-			programcard['Duration'] = 0
-			
-			# if programcard indside
-			if programcard.get('ProgramCard'):
-				
-				# find assets
-				if programcard.get('ProgramCard').get('Assets'):
-					programcard['Assets'] = programcard.get('ProgramCard').get('Assets')
-				
-				# find broadcasts
-				if programcard.get('ProgramCard').get('Broadcasts'):
-					programcard['Broadcasts'] = programcard.get('ProgramCard').get('Broadcasts')
-			
-				# find broadcasts
-				if programcard.get('ProgramCard').get('Relations'):
-					programcard['Relations'] = programcard.get('ProgramCard').get('Relations')
-			
-			# find slug
-			if not programcard.get('Slug') and programcard.get('ProgramCard'):
-				if programcard.get('ProgramCard').get('Slug'):
-					programcard['Slug'] = programcard.get('ProgramCard').get('Slug')
-			
-			# run through program if media available	
-			if programcard.get('Assets'):
-				
-				# run through assets
-				for asset in programcard.get('Assets', dict()):
-	
-					# if asset.get('Kind') == 'VideoResource' and asset.get('Uri') and asset.get('RestrictedToDenmark') is True:
-					#	raise Ex.MediaGeoblocked
-	
-					# check if program has media
-					if asset.get('Kind') == 'VideoResource' and asset.get('Uri'):
-						hasMedia = True
-						if asset.get('DurationInMilliseconds'):
-							programcard['Duration'] = asset.get('DurationInMilliseconds')
-						
-					# check if program has image
-					if asset.get('Kind') == 'Image' and asset.get('Uri'):
-						programcard['Thumb'] = asset['Uri'] + '?width=512&height=512'
-						break
-					
-				# set hasMedia		
-				programcard['hasMedia'] = hasMedia
-				
-			# run through program if Relations available	
-			if programcard.get('Relations'):
-				
-				# run through each broadcast
-				for relation in programcard.get('Relations', dict()):
-					if relation.get('BundleType') == 'Series':
-						programcard['Serie_Slug'] = relation.get('Slug')
-				
-			# run through program if broadcasts available	
-			if programcard.get('Broadcasts'):
-				
-				# run through each broadcast
-				for broadcast in programcard.get('Broadcasts', dict()):
-					
-					# if broadcast['IsRerun']: del broadcast
-					
-					# check must have variables
-					for checkPar in checkList:
-						
-						# if not found in programcard, try get it from broadcast json
-						if programcard.get(checkPar) is None or programcard.get(checkPar) == "" :
-							programcard[checkPar] = broadcast.get(checkPar)
-					
-					# find first start date in broadcast - assume its first run
-					if 'FirstBroadcastStartTime' not in programcard:
-					
-						if 'AnnouncedStartTime' not in programcard:
-							programcard['AnnouncedStartTime'] = broadcast.get('AnnouncedStartTime', '0001-01-01T00:00:00Z')
-						else:
-							programTime = Datetime.ParseDate(programcard['AnnouncedStartTime'])
-							broadcastTime = Datetime.ParseDate(broadcast.get('AnnouncedStartTime', '0001-01-01T00:00:00Z'))
-							if broadcastTime>programTime:
-								programcard['AnnouncedStartTime'] = broadcast.get('AnnouncedStartTime', '0001-01-01T00:00:00Z')
-						
-						# set first broadcast start / end
-						if programcard.get('AnnouncedStartTime'):
-							programcard['FirstBroadcastStartTime'] = programcard.get('AnnouncedStartTime')
-						
-					# find first end date in broadcast - assume its first run
-					if 'FirstBroadcastEndTime' not in programcard:
-						
-						if 'AnnouncedEndTime' not in programcard:
-							programcard['AnnouncedEndTime'] = broadcast.get('AnnouncedEndTime', '0001-01-01T00:00:00Z')
-						else:
-							programTime = Datetime.ParseDate(programcard['AnnouncedEndTime'])
-							broadcastTime = Datetime.ParseDate(broadcast.get('AnnouncedEndTime', '0001-01-01T00:00:00Z'))
-							if broadcastTime>programTime:
-								programcard['AnnouncedEndTime'] = broadcast.get('AnnouncedEndTime', '0001-01-01T00:00:00Z')
-					
-						
-						# set first broadcast start / end
-						if programcard.get('AnnouncedEndTime'):
-							programcard['FirstBroadcastEndTime'] = programcard.get('AnnouncedEndTime')
-					
-				# set title
-				for rules in serierules:
-					if re.search(rules['RegEx'], programcard['Title']):
-						if programcard.get('PrimaryChannel') in rules.get('Channels', dict()) or 'ReplaceEx' in rules:
-							programcard['Title'] = re.sub(rules['RegEx'], rules['ReplaceEx'], programcard['Title'], 1)
-						programcard['Title'] = programcard['Title'] + Datetime.ParseDate(programcard['AnnouncedStartTime']).strftime(' (%d-%m-%y)')
-						break
-					
-				# remove broadcasts
-				del programcard['Broadcasts']
-			
-	except Ex.MediaNotAvailable:
-		pass
-	except Ex.MediaGeoblocked:
-		pass
-	
-	# order programcards by "orderby"
-	if order:
-		programcards = sorted(programcards, key=lambda item: item.get('Title'))
-	
-	# remove bad slugs
-		
-	return programcards
-
-###################################################################################################
-
-def stripBundle(bundle):
-	
-	return bundle
-
-###################################################################################################
-
-def getRadioMetadata(channelId):
-	
-	# This is a undocumented feature that might break the plugin.
-	JSONobj = JSON.ObjectFromURL(RADIO_NOWNEXT_URL % channelId, cacheTime = 60)
-	title_now = ""
-	description_now = ""
-	start_now = ""
-	stop_now = "" 
-	title_next = "" 
-	description_next = "" 
-	start_next = ""
-	stop_next = ""
-	trackop = ""
-	
-	if JSONobj['currentProgram']:
-		if JSONobj['currentProgram']['title']:
-			title_now = String.StripTags(JSONobj['currentProgram']['title']).replace("'","\'")
-		if JSONobj['currentProgram']['description']:
-			description_now = "\n" + String.StripTags(JSONobj['currentProgram']['description']).replace("'","\'")
-		if JSONobj['currentProgram']['start'] and JSONobj['currentProgram']['stop']:
-			start_now = "'\n" +JSONobj['currentProgram']['start'].split('T')[1].split(':')[0]+":"+JSONobj['currentProgram']['start'].split('T')[1].split(':')[1]
-			stop_now = "-"+JSONobj['currentProgram']['stop'].split('T')[1].split(':')[0]+":"+JSONobj['currentProgram']['stop'].split('T')[1].split(':')[1]
-
-	if JSONobj['nextProgram']:
-		if JSONobj['nextProgram']['title']:
-			title_next = "\n\n" + String.StripTags(JSONobj['nextProgram']['title']).replace("'","\'")
-		if JSONobj['nextProgram']['description']:
-			description_next = "\n" + String.StripTags(JSONobj['nextProgram']['description']).replace("'","\'")
-		if JSONobj['nextProgram']['start'] and JSONobj['nextProgram']['stop']:
-			start_next = "\n" + JSONobj['nextProgram']['start'].split('T')[1].split(':')[0]+":"+JSONobj['nextProgram']['start'].split('T')[1].split(':')[1]
-			stop_next = "-" + JSONobj['nextProgram']['stop'].split('T')[1].split(':')[0]+":"+JSONobj['nextProgram']['stop'].split('T')[1].split(':')[1]
-
-	try:
-		JSONobjTracks = JSON.ObjectFromURL(RADIO_TRACKS_URL % channelId, cacheTime=30)
-		if JSONobjTracks['tracks']:
-			pre1 = "\n\n%s: " % unicode(L('latestTitle'))
-			for track in JSONobjTracks['tracks']:
-				if track['displayArtist']:
-					trackop = trackop + pre1 + track['displayArtist']
-				if track['title']:
-					trackop = trackop + "\n" + track['title'] + "\n\n"
-				pre1 = "%s: " % unicode(L('previous'))
-	except:pass			
-					
-	strNowNext = title_now + description_now + start_now + stop_now + title_next + description_next + start_next + stop_next + trackop
-		
-	return strNowNext
-
-###################################################################################################
-
-def getTVLiveMetadata(slug):
-	nowNext = JSON.ObjectFromURL('http://www.dr.dk/TV/live/info/%s/json' % slug)
-	description = ""
-	# now
-	if 'Now' in nowNext:	
-		description += '%s:' % unicode(L('now'))
-		if 'Title' in nowNext['Now']:
-			description += ' ' + nowNext['Now']['Title']
-	#===========================================================================
-	#	if 'StartTimestamp' in nowNext['Now']:
-	#		
-	#		description += ' (' + datetime.datetime.fromtimestamp(nowNext['Now']['StartTimestamp']/1000).strftime('%H:%M')
-	#	if 'EndTimestamp' in nowNext['Now']:
-	#		description += ' - ' + datetime.datetime.fromtimestamp(nowNext['Now']['EndTimestamp']/1000).strftime('%H:%M')+')'
-	#	else:
-	#		description += ')'
-	# 
-	#	if 'Description' in nowNext['Now']:
-	#===========================================================================
-			description += '\n' + String.StripTags(nowNext['Now']['Description'])
-	else:
-		description += unicode(L('noBroadcast'))
-	
-	# next
-	if 'Next' in nowNext:
-		description+= u'\n\n%s:' % unicode( unicode(L('next')))
-		if 'Title' in nowNext['Next']:
-			description += ' ' + nowNext['Next']['Title']
-	#===========================================================================
-	#	if 'StartTimestamp' in nowNext['Next']:
-	#		
-	#		description += ' (' + datetime.datetime.fromtimestamp(nowNext['Next']['StartTimestamp']/1000).strftime('%H:%M')
-	#	if 'EndTimestamp' in nowNext['Next']:
-	#		description += ' - ' + datetime.datetime.fromtimestamp(nowNext['Next']['EndTimestamp']/1000).strftime('%H:%M')+')'
-	#	else:
-	#		description += ')'
-	# 
-	#===========================================================================
-		if 'Description' in nowNext['Next']:
-			description += '\n' + String.StripTags(nowNext['Next']['Description'])
-	
-	return description
+#===============================================================================
+# def getTVLiveMetadata(slug):
+#	nowNext = JSON.ObjectFromURL('http://www.dr.dk/TV/API/live/info/%s/json' % slug)
+#	description = ""
+#	# now
+#	if 'Now' in nowNext:	
+#		description += '%s:' % unicode(L('now'))
+#		if 'Title' in nowNext['Now']:
+#			description += ' ' + nowNext['Now']['Title']
+#	#===========================================================================
+#	#	if 'StartTimestamp' in nowNext['Now']:
+#	#		
+#	#		description += ' (' + datetime.datetime.fromtimestamp(nowNext['Now']['StartTimestamp']/1000).strftime('%H:%M')
+#	#	if 'EndTimestamp' in nowNext['Now']:
+#	#		description += ' - ' + datetime.datetime.fromtimestamp(nowNext['Now']['EndTimestamp']/1000).strftime('%H:%M')+')'
+#	#	else:
+#	#		description += ')'
+#	# 
+#	#	if 'Description' in nowNext['Now']:
+#	#===========================================================================
+#			description += '\n' + String.StripTags(nowNext['Now']['Description'])
+#	else:
+#		description += unicode(L('noBroadcast'))
+#	
+#	# next
+#	if 'Next' in nowNext:
+#		description+= u'\n\n%s:' % unicode( unicode(L('next')))
+#		if 'Title' in nowNext['Next']:
+#			description += ' ' + nowNext['Next']['Title']
+#	#===========================================================================
+#	#	if 'StartTimestamp' in nowNext['Next']:
+#	#		
+#	#		description += ' (' + datetime.datetime.fromtimestamp(nowNext['Next']['StartTimestamp']/1000).strftime('%H:%M')
+#	#	if 'EndTimestamp' in nowNext['Next']:
+#	#		description += ' - ' + datetime.datetime.fromtimestamp(nowNext['Next']['EndTimestamp']/1000).strftime('%H:%M')+')'
+#	#	else:
+#	#		description += ')'
+#	# 
+#	#===========================================================================
+#		if 'Description' in nowNext['Next']:
+#			description += '\n' + String.StripTags(nowNext['Next']['Description'])
+#	
+#	return description
+#===============================================================================
 
 ###################################################################################################
